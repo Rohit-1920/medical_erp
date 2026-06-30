@@ -287,8 +287,8 @@ After=network.target
 [Service]
 Type=simple
 User=ubuntu
-WorkingDirectory=/home/ubuntu/medical_erp/user-service
-EnvironmentFile=/home/ubuntu/medical_erp/user-service/.env
+WorkingDirectory=/root/medical_erp/user-service
+EnvironmentFile=/root/medical_erp/user-service/.env
 ExecStart=/usr/bin/java -jar target/user-service-1.0.0.jar
 Restart=on-failure
 
@@ -310,8 +310,8 @@ After=network.target
 [Service]
 Type=simple
 User=ubuntu
-WorkingDirectory=/home/ubuntu/medical_erp/product-service
-EnvironmentFile=/home/ubuntu/medical_erp/product-service/.env
+WorkingDirectory=/root/medical_erp/product-service
+EnvironmentFile=/root/medical_erp/product-service/.env
 ExecStart=/usr/bin/java -jar target/product-service-1.0.0.jar
 Restart=on-failure
 
@@ -333,8 +333,8 @@ After=network.target
 [Service]
 Type=simple
 User=ubuntu
-WorkingDirectory=/home/ubuntu/medical_erp/order-service
-EnvironmentFile=/home/ubuntu/medical_erp/order-service/.env
+WorkingDirectory=/root/medical_erp/order-service
+EnvironmentFile=/root/medical_erp/order-service/.env
 ExecStart=/usr/bin/java -jar target/order-service-1.0.0.jar
 Restart=on-failure
 
