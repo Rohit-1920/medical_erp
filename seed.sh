@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# MedERP Bootstrap Seed Script - Idempotent & Student-Safe
+# MedERP Bootstrap Seed Script 
 # Safe to run multiple times on any fresh or existing deployment
 
 BASE_URL="http://localhost:8081/api/v1"
