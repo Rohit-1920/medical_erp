@@ -1,3 +1,4 @@
+# DO NOT USE
 # MedERP — Complete AWS EC2 Deployment Guide
 
 This guide walks you through deploying the EduBlitz Medical B2B ERP system on a fresh AWS EC2 instance, from creating the MongoDB database to having a working application in your browser. It assumes **no prior AWS or MongoDB Atlas experience**.
