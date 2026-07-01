@@ -40,6 +40,7 @@ public class SecurityConfig {
 
     private static final String[] PUBLIC_ENDPOINTS = {
             "/auth/**",
+            "/organizations/**",
             "/actuator/health",
             "/actuator/info",
             "/api-docs/**",
@@ -55,7 +56,6 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(PUBLIC_ENDPOINTS).permitAll()
                         .requestMatchers("/admin/**").hasRole("ADMIN")
-                        .requestMatchers("/organizations/**").hasAnyRole("ADMIN", "DISTRIBUTOR", "HOSPITAL")
                         .anyRequest().authenticated()
                 )
                 .sessionManagement(session -> session

@@ -6,11 +6,13 @@ import { useAuthStore } from '../store/authStore'
 import { statusBadge, statusLabel } from '../utils/orderStatus'
 import { formatDistanceToNow } from 'date-fns'
 import { useState } from 'react'
+import NewOrderModal from '../components/NewOrderModal'
 
 export default function OrdersPage() {
   const navigate = useNavigate()
   const user = useAuthStore(s => s.user)
   const [page, setPage] = useState(0)
+  const [showNewOrder, setShowNewOrder] = useState(false)
 
   const isDistributor = user?.role === 'DISTRIBUTOR' || user?.role === 'ADMIN'
 
@@ -31,7 +33,7 @@ export default function OrdersPage() {
           </p>
         </div>
         {user?.role === 'HOSPITAL' && (
-          <button className="btn-primary flex items-center gap-2">
+          <button className="btn-primary flex items-center gap-2" onClick={() => setShowNewOrder(true)}>
             <Plus className="w-4 h-4" /> New Order
           </button>
         )}
@@ -106,6 +108,7 @@ export default function OrdersPage() {
           )}
         </>
       )}
+      {showNewOrder && <NewOrderModal onClose={() => setShowNewOrder(false)} />}
     </div>
   )
 }

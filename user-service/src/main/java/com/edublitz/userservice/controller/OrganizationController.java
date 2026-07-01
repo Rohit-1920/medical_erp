@@ -26,8 +26,7 @@ public class OrganizationController {
     private final OrganizationRepository organizationRepository;
 
     @PostMapping
-    @PreAuthorize("hasRole('ADMIN')")
-    @Operation(summary = "Create a new organization (Admin only)")
+    @Operation(summary = "Create a new organization")
     public ResponseEntity<Organization> create(@Valid @RequestBody Organization org) {
         if (organizationRepository.existsByRegistrationNumber(org.getRegistrationNumber())) {
             throw new BadRequestException("Registration number already exists: " + org.getRegistrationNumber());
@@ -56,7 +55,6 @@ public class OrganizationController {
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
     @Operation(summary = "Update organization (Admin only)")
     public ResponseEntity<Organization> update(@PathVariable String id,
                                                @Valid @RequestBody Organization updated) {

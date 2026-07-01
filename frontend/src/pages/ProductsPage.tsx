@@ -4,6 +4,7 @@ import { Package, Search, Filter } from 'lucide-react'
 import { productsApi } from '../api/products'
 import { useAuthStore } from '../store/authStore'
 import type { Product } from '../types'
+import AddProductModal from '../components/AddProductModal'
 
 const categories = ['ALL', 'MEDICINE', 'SURGICAL', 'DIAGNOSTIC', 'EQUIPMENT', 'CONSUMABLE', 'VACCINE']
 
@@ -21,6 +22,7 @@ export default function ProductsPage() {
   const [search, setSearch] = useState('')
   const [category, setCategory] = useState('ALL')
   const [page, setPage] = useState(0)
+  const [showAddModal, setShowAddModal] = useState(false)
 
   const { data, isLoading } = useQuery({
     queryKey: ['products', category, page],
@@ -49,7 +51,7 @@ export default function ProductsPage() {
           </p>
         </div>
         {(user?.role === 'ADMIN' || user?.role === 'DISTRIBUTOR') && (
-          <button className="btn-primary">+ Add Product</button>
+          <button className="btn-primary" onClick={() => setShowAddModal(true)}>+ Add Product</button>
         )}
       </div>
 
@@ -158,6 +160,7 @@ export default function ProductsPage() {
           )}
         </>
       )}
+      {showAddModal && <AddProductModal onClose={() => setShowAddModal(false)} />}
     </div>
   )
 }

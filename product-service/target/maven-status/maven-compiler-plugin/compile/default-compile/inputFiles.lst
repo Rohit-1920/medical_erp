@@ -1,0 +1,16 @@
+/root/medical_erp/product-service/src/main/java/com/edublitz/productservice/dto/StockUpdateRequest.java
+/root/medical_erp/product-service/src/main/java/com/edublitz/productservice/repository/InventoryRepository.java
+/root/medical_erp/product-service/src/main/java/com/edublitz/productservice/controller/ProductController.java
+/root/medical_erp/product-service/src/main/java/com/edublitz/productservice/config/OpenApiConfig.java
+/root/medical_erp/product-service/src/main/java/com/edublitz/productservice/dto/ProductRequest.java
+/root/medical_erp/product-service/src/main/java/com/edublitz/productservice/security/JwtService.java
+/root/medical_erp/product-service/src/main/java/com/edublitz/productservice/ProductServiceApplication.java
+/root/medical_erp/product-service/src/main/java/com/edublitz/productservice/exception/GlobalExceptionHandler.java
+/root/medical_erp/product-service/src/main/java/com/edublitz/productservice/service/ProductService.java
+/root/medical_erp/product-service/src/main/java/com/edublitz/productservice/repository/ProductRepository.java
+/root/medical_erp/product-service/src/main/java/com/edublitz/productservice/config/SecurityConfig.java
+/root/medical_erp/product-service/src/main/java/com/edublitz/productservice/model/InventoryItem.java
+/root/medical_erp/product-service/src/main/java/com/edublitz/productservice/security/JwtAuthenticationFilter.java
+/root/medical_erp/product-service/src/main/java/com/edublitz/productservice/model/Product.java
+/root/medical_erp/product-service/src/main/java/com/edublitz/productservice/exception/BadRequestException.java
+/root/medical_erp/product-service/src/main/java/com/edublitz/productservice/exception/ResourceNotFoundException.java
