@@ -1,138 +1,95 @@
 version: "3.9"
 
-# ──────────────────────────────────────────────
-#  Medical B2B ERP — Local Docker Compose Stack
-#  Start everything: docker compose up -d
-# ──────────────────────────────────────────────
-
 networks:
-  med-erp-net:
+  mederr-network:
     driver: bridge
-
-volumes:
-  mongo-data:
 
 services:
 
-  # ─── MongoDB (local dev only; use Atlas in staging/prod) ──────────────────
-  mongodb:
-    image: mongo:7.0
-    container_name: med-erp-mongodb
-    restart: unless-stopped
-    ports:
-      - "27017:27017"
-    environment:
-      MONGO_INITDB_ROOT_USERNAME: admin
-      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:-changeme}
-    volumes:
-      - mongo-data:/data/db
-      - ./init-mongo.js:/docker-entrypoint-initdb.d/init-mongo.js:ro
-    networks:
-      - med-erp-net
-    healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  # ─── User Service ─────────────────────────────────────────────────────────
   user-service:
     build:
-      context: ../user-service
+      context: ./user-service
       dockerfile: Dockerfile
-    container_name: med-erp-user-service
+    container_name: user-service
     restart: unless-stopped
-    ports:
-      - "8081:8081"
     environment:
-      MONGODB_URI: mongodb://admin:${MONGO_ROOT_PASSWORD:-changeme}@mongodb:27017/users_db?authSource=admin
-      JWT_SECRET: ${JWT_SECRET:-404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970}
-      JWT_EXPIRATION: 86400000
-      JWT_REFRESH_EXPIRATION: 604800000
-      CORS_ALLOWED_ORIGINS: http://localhost:5173,http://localhost:3000
-    depends_on:
-      mongodb:
-        condition: service_healthy
+      MONGODB_URI: ${USER_MONGODB_URI}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRATION: ${JWT_EXPIRATION:-86400000}
+      JWT_REFRESH_EXPIRATION: ${JWT_REFRESH_EXPIRATION:-604800000}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS}
     networks:
-      - med-erp-net
+      - mederr-network
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8081/api/v1/actuator/health"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8081/api/v1/actuator/health"]
       interval: 30s
       timeout: 10s
-      retries: 3
+      retries: 5
       start_period: 60s
+    expose:
+      - "8081"
 
-  # ─── Product Service ──────────────────────────────────────────────────────
   product-service:
     build:
-      context: ../product-service
+      context: ./product-service
       dockerfile: Dockerfile
-    container_name: med-erp-product-service
+    container_name: product-service
     restart: unless-stopped
-    ports:
-      - "8082:8082"
     environment:
-      MONGODB_URI: mongodb://admin:${MONGO_ROOT_PASSWORD:-changeme}@mongodb:27017/products_db?authSource=admin
-      JWT_SECRET: ${JWT_SECRET:-404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970}
-      CORS_ALLOWED_ORIGINS: http://localhost:5173,http://localhost:3000
-      LOW_STOCK_THRESHOLD: 10
-    depends_on:
-      mongodb:
-        condition: service_healthy
+      MONGODB_URI: ${PRODUCT_MONGODB_URI}
+      JWT_SECRET: ${JWT_SECRET}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS}
+      LOW_STOCK_THRESHOLD: ${LOW_STOCK_THRESHOLD:-10}
     networks:
-      - med-erp-net
+      - mederr-network
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8082/api/v1/actuator/health"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8082/api/v1/actuator/health"]
       interval: 30s
       timeout: 10s
-      retries: 3
+      retries: 5
       start_period: 60s
+    expose:
+      - "8082"
 
-  # ─── Order Service ────────────────────────────────────────────────────────
   order-service:
     build:
-      context: ../order-service
+      context: ./order-service
       dockerfile: Dockerfile
-    container_name: med-erp-order-service
+    container_name: order-service
     restart: unless-stopped
-    ports:
-      - "8083:8083"
     environment:
-      MONGODB_URI: mongodb://admin:${MONGO_ROOT_PASSWORD:-changeme}@mongodb:27017/orders_db?authSource=admin
-      JWT_SECRET: ${JWT_SECRET:-404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970}
-      CORS_ALLOWED_ORIGINS: http://localhost:5173,http://localhost:3000
+      MONGODB_URI: ${ORDER_MONGODB_URI}
+      JWT_SECRET: ${JWT_SECRET}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS}
       PRODUCT_SERVICE_URL: http://product-service:8082/api/v1
       USER_SERVICE_URL: http://user-service:8081/api/v1
+    networks:
+      - mederr-network
     depends_on:
-      product-service:
-        condition: service_healthy
       user-service:
         condition: service_healthy
-    networks:
-      - med-erp-net
+      product-service:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8083/api/v1/actuator/health"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8083/api/v1/actuator/health"]
       interval: 30s
       timeout: 10s
-      retries: 3
+      retries: 5
       start_period: 60s
+    expose:
+      - "8083"
 
-  # ─── Frontend ─────────────────────────────────────────────────────────────
   frontend:
     build:
-      context: ../frontend
+      context: ./frontend
       dockerfile: Dockerfile
-    container_name: med-erp-frontend
+    container_name: frontend
     restart: unless-stopped
     ports:
-      - "3000:80"
-    environment:
-      VITE_USER_SERVICE_URL: http://user-service:8081/api/v1
-      VITE_PRODUCT_SERVICE_URL: http://product-service:8082/api/v1
-      VITE_ORDER_SERVICE_URL: http://order-service:8083/api/v1
+      - "80:80"
+    networks:
+      - mederr-network
     depends_on:
       - user-service
       - product-service
       - order-service
-    networks:
-      - med-erp-net

@@ -1,0 +1,10 @@
+target/
+*.jar
+*.class
+.env
+.env.*
+*.md
+.git
+.gitignore
+.idea/
+*.iml
