@@ -1,59 +1,73 @@
 # MedERP — Docker Deployment Guide
 
 Deploy the entire MedERP stack with a single command using Docker Compose.
-This replaces the manual systemd + Nginx setup from the bare-EC2 guide.
 
 ---
 
-## What Docker Gives You Over Bare EC2
+## Why Docker Instead of Bare EC2
 
 | Bare EC2 | Docker |
 |----------|--------|
 | Install Java, Maven, Node manually | Only Docker needed |
 | Create 3 systemd service files | One `docker-compose.yml` |
-| Manage ports manually | Docker networking handles it |
 | `User=root vs ubuntu` confusion | Containers run the same everywhere |
 | `localhost` URL confusion in order-service | Docker service names work automatically |
 | Manual Nginx config | Nginx runs as a container |
-| Rebuild takes 10+ manual steps | `docker-compose up --build -d` |
+| 10+ manual steps to deploy | `docker compose up --build -d` |
+
+---
+
+## How Nginx Routing Works in Docker
+
+This is the most important thing to understand before running any commands.
+
+In Docker, your services are NOT exposed directly on the host.
+Only Nginx (frontend container) exposes port 80.
+Everything goes through Nginx.
+
+Nginx strips the path prefix and proxies to the correct container:
+
+```
+/api/user/auth/login      → user-service:8081/api/v1/auth/login
+/api/product/products     → product-service:8082/api/v1/products
+/api/order/orders         → order-service:8083/api/v1/orders
+```
+
+This means:
+- ✅ `http://localhost/api/user/auth/login`     — CORRECT
+- ❌ `http://localhost:8081/api/v1/auth/login`  — WRONG (port not exposed)
+- ❌ `http://localhost/api/user/api/v1/auth/login` — WRONG (double /api/v1)
+
+Always use `http://localhost/api/user/...`, `http://localhost/api/product/...`,
+`http://localhost/api/order/...` — not direct ports.
 
 ---
 
 ## Architecture
 
 ```
-Internet
-    │
-    ▼
-┌─────────────────────────────────────┐
-│  EC2 Instance                       │
-│                                     │
-│  ┌──────────────────────────────┐   │
-│  │  frontend container (Nginx)  │   │
-│  │  Port 80 → 443               │   │
-│  └──────┬─────────┬──────┬─────┘   │
-│         │         │      │         │
-│    /api/user /api/product /api/order│
-│         │         │      │         │
-│  ┌──────▼──┐ ┌────▼───┐ ┌▼──────┐  │
-│  │user-svc │ │prod-svc│ │ord-svc│  │
-│  │  :8081  │ │  :8082 │ │ :8083 │  │
-│  └─────────┘ └────────┘ └───────┘  │
-│                                     │
-│  All on: mederr-network (bridge)    │
-└─────────────────────────────────────┘
-         │
-         ▼
-  MongoDB Atlas (cloud)
+Browser
+  │
+  ▼ port 80
+┌────────────────────────────────────┐
+│  frontend container (Nginx)        │
+│                                    │
+│  /api/user/*    → user-service     │
+│  /api/product/* → product-service  │
+│  /api/order/*   → order-service    │
+│  /*             → React SPA        │
+└──────┬──────────────┬──────────────┘
+       │              │           │
+ user-service   product-service  order-service
+  :8081          :8082            :8083
+       │              │           │
+       └──────────────┴───────────┘
+                      │
+               MongoDB Atlas (cloud)
+
+All containers on: mederr-network (bridge)
+Ports 8081/8082/8083 are internal only — not exposed to the internet
 ```
-
----
-
-## Prerequisites
-
-- AWS account
-- Domain name (e.g. `awswithrohit.fun`) with DNS pointing to your EC2 IP
-- MongoDB Atlas cluster (free M0 tier is fine)
 
 ---
 
@@ -62,15 +76,14 @@ Internet
 1. Go to AWS Console → EC2 → **Launch Instance**
 2. Settings:
    - **OS**: Ubuntu Server 22.04 LTS
-   - **Instance type**: `t3.medium` minimum (4GB RAM)
-   - **Storage**: 30GB (Docker images need more space than bare jars)
+   - **Instance type**: `t3.medium` minimum (4GB RAM for 3 Java containers)
+   - **Storage**: 30GB
    - **Key pair**: create/download `.pem`
 3. **Security Group inbound rules**:
-   - SSH (22) → My IP only
-   - HTTP (80) → 0.0.0.0/0
-   - HTTPS (443) → 0.0.0.0/0
-   - **Do NOT open 8081, 8082, 8083** — these are internal to Docker network
-4. Launch and note the **Public IPv4**
+   - SSH port 22 → My IP only
+   - HTTP port 80 → 0.0.0.0/0
+   - **Do NOT open 8081, 8082, 8083** — internal to Docker only
+4. Launch → note the **Public IPv4 address**
 
 ---
 
@@ -81,8 +94,6 @@ chmod 400 your-key.pem
 ssh -i your-key.pem ubuntu@<your-ec2-public-ip>
 ```
 
-Install Docker and Docker Compose:
-
 ```bash
 sudo apt update && sudo apt upgrade -y
 
@@ -90,13 +101,13 @@ sudo apt update && sudo apt upgrade -y
 curl -fsSL https://get.docker.com -o get-docker.sh
 sudo sh get-docker.sh
 
-# Add ubuntu user to docker group (so you don't need sudo every time)
+# Add ubuntu to docker group (no sudo needed)
 sudo usermod -aG docker ubuntu
 
 # Install Docker Compose plugin
 sudo apt install -y docker-compose-plugin
 
-# Apply group change without logging out
+# Apply group change without re-login
 newgrp docker
 
 # Verify
@@ -106,48 +117,7 @@ docker compose version
 
 ---
 
-## Part 3 — Set Up DNS and SSL
-
-### 3.1 Point your domain to EC2
-
-In Route 53 (or your DNS provider), create:
-- `A` record: `awswithrohit.fun` → your EC2 IP
-- `A` record: `www.awswithrohit.fun` → your EC2 IP
-
-Wait for DNS to propagate. Check with:
-```bash
-nslookup awswithrohit.fun
-# Should return your EC2 IP
-```
-
-### 3.2 Get SSL certificate (before starting Docker)
-
-Install certbot on the EC2 host (not inside Docker):
-
-```bash
-sudo apt install -y certbot
-
-# Get certificate — port 80 must be free (Docker not running yet)
-sudo certbot certonly --standalone \
-  -d awswithrohit.fun \
-  -d www.awswithrohit.fun \
-  --non-interactive \
-  --agree-tos \
-  --email your@email.com
-```
-
-Certificates are saved to `/etc/letsencrypt/live/awswithrohit.fun/`.
-The Docker Nginx container mounts this path as a read-only volume.
-
-Set up auto-renewal:
-```bash
-sudo certbot renew --dry-run   # confirm it works
-# Certbot installs a systemd timer automatically — no cron needed
-```
-
----
-
-## Part 4 — Clone Repo and Set Up Files
+## Part 3 — Clone Repo and Set Up Files
 
 ```bash
 cd ~
@@ -155,85 +125,76 @@ git clone https://github.com/Rohit-1920/medical_erp.git
 cd medical_erp
 ```
 
-### 4.1 Place the Dockerfiles
-
-Each service needs its own `Dockerfile`. Copy from the repo's `docker/` folder:
+### 3.1 Copy Dockerfiles into each service folder
 
 ```bash
-cp docker/user-service.Dockerfile     user-service/Dockerfile
-cp docker/product-service.Dockerfile  product-service/Dockerfile
-cp docker/order-service.Dockerfile    order-service/Dockerfile
-cp docker/frontend.Dockerfile         frontend/Dockerfile
+cp docker/user-service.Dockerfile      user-service/Dockerfile
+cp docker/product-service.Dockerfile   product-service/Dockerfile
+cp docker/order-service.Dockerfile     order-service/Dockerfile
+cp docker/frontend.Dockerfile          frontend/Dockerfile
 ```
 
-### 4.2 Replace frontend nginx.conf with Docker version
-
-The Docker version proxies to container names instead of localhost ports:
+### 3.2 Copy nginx.conf into frontend folder
 
 ```bash
 cp docker/nginx.conf frontend/nginx.conf
 ```
 
-### 4.3 Place .dockerignore files
+### 3.3 Copy .dockerignore files
 
 ```bash
-cp docker/java.dockerignore  user-service/.dockerignore
-cp docker/java.dockerignore  product-service/.dockerignore
-cp docker/java.dockerignore  order-service/.dockerignore
+cp docker/java.dockerignore     user-service/.dockerignore
+cp docker/java.dockerignore     product-service/.dockerignore
+cp docker/java.dockerignore     order-service/.dockerignore
 cp docker/frontend.dockerignore frontend/.dockerignore
 ```
 
-### 4.4 Create the .env file
+### 3.4 Copy docker-compose.yml to repo root
+
+```bash
+cp docker/docker-compose.yml .
+```
+
+### 3.5 Create your .env file
 
 ```bash
 cp docker/.env.example .env
 nano .env
 ```
 
-Fill in all values:
+Fill in your real values:
 
 ```env
+# Get these from MongoDB Atlas → Connect → Drivers
+# Append the correct database name (/users_db, /products_db, /orders_db)
 USER_MONGODB_URI=mongodb+srv://admin:<password>@cluster0.xxxxx.mongodb.net/users_db?retryWrites=true&w=majority&appName=Cluster0
 PRODUCT_MONGODB_URI=mongodb+srv://admin:<password>@cluster0.xxxxx.mongodb.net/products_db?retryWrites=true&w=majority&appName=Cluster0
 ORDER_MONGODB_URI=mongodb+srv://admin:<password>@cluster0.xxxxx.mongodb.net/orders_db?retryWrites=true&w=majority&appName=Cluster0
-JWT_SECRET=<run: openssl rand -hex 32>
+
+# Generate: openssl rand -hex 32
+# MUST be the same for all 3 services
+JWT_SECRET=<your-generated-secret>
+
 JWT_EXPIRATION=86400000
 JWT_REFRESH_EXPIRATION=604800000
-CORS_ALLOWED_ORIGINS=https://awswithrohit.fun,https://www.awswithrohit.fun
+
+# Your EC2 public IP (run: curl ifconfig.me)
+CORS_ALLOWED_ORIGINS=http://<your-ec2-public-ip>
+
 LOW_STOCK_THRESHOLD=10
 ```
 
-> Generate JWT secret: `openssl rand -hex 32`
-
 ---
 
-## Part 5 — Build and Start Everything
+## Part 4 — Build and Start Everything
 
 ```bash
 cd ~/medical_erp
-
-# Build all images and start all containers in background
 docker compose up --build -d
 ```
 
-This will:
-1. Build 4 Docker images (user-service, product-service, order-service, frontend)
-2. Start all containers on the `mederr-network` bridge network
-3. order-service waits for user-service and product-service to be healthy before starting
-
-First build takes 5-10 minutes (downloading Maven/Node dependencies).
-Subsequent builds are faster due to Docker layer caching.
-
-### Watch the logs
-
-```bash
-# All services
-docker compose logs -f
-
-# Single service
-docker compose logs -f user-service
-docker compose logs -f order-service
-```
+First build takes 5-10 minutes (Maven + Node dependencies).
+Subsequent builds are faster due to layer caching.
 
 ### Check all containers are running
 
@@ -241,12 +202,9 @@ docker compose logs -f order-service
 docker compose ps
 ```
 
-All should show `healthy` status. If any shows `unhealthy`, check its logs:
-```bash
-docker compose logs user-service
-```
+Wait up to 2 minutes. All 4 should show `healthy`.
 
-### Verify health endpoints
+### Verify health endpoints (through Nginx)
 
 ```bash
 curl http://localhost/api/user/actuator/health
@@ -254,20 +212,30 @@ curl http://localhost/api/product/actuator/health
 curl http://localhost/api/order/actuator/health
 ```
 
-All should return `{"status":"UP"}`.
+All must return `{"status":"UP"}` before continuing.
+
+If any returns an error, check logs:
+```bash
+docker compose logs user-service
+docker compose logs product-service
+docker compose logs order-service
+```
 
 ---
 
-## Part 6 — Bootstrap Users and Organizations
-
-Same seed script as bare-EC2, works identically:
+## Part 5 — Bootstrap Organizations and Users
 
 ```bash
 cd ~/medical_erp
-bash seed.sh
+bash docker/docker-seed.sh
 ```
 
-Output:
+This creates:
+- City General Hospital (HOSPITAL org)
+- ABC Distributors Pvt Ltd (DISTRIBUTOR org)
+- 3 default users (admin, distributor, hospital)
+
+Output on success:
 ```
 ✅ Hospital org created
 ✅ Distributor org created
@@ -276,14 +244,45 @@ Output:
 ✅ HOSPITAL user created: hospital@mederr.com
 ```
 
+> Safe to run multiple times — skips anything that already exists.
+
 ---
 
-## Part 7 — Verify
+## Part 6 — Test the Full Workflow
 
-Open `https://awswithrohit.fun` in your browser.
-You should see the MedERP login page with a padlock (SSL).
+### Step 1 — Add a product (as Distributor)
 
-Login credentials:
+1. Open `http://<your-ec2-public-ip>` in browser
+2. Log in as `distributor@mederr.com` / `Dist@1234`
+3. Go to **Products** → **+ Add Product** → fill the form → Save
+
+### Step 2 — Add stock (required for order approval)
+
+After adding a product, run:
+
+```bash
+bash docker/docker-add-stock.sh
+```
+
+This automatically adds 1000 units of stock for every product belonging to the distributor.
+
+> Without stock, the distributor cannot approve orders — you will get "Insufficient stock" error.
+
+### Step 3 — Place an order (as Hospital)
+
+1. Log out → Log in as `hospital@mederr.com` / `Hosp@1234`
+2. Go to **Orders** → **+ New Order**
+3. Select distributor → pick a product → set quantity and shipping address → **Place Order**
+
+### Step 4 — Approve the order (as Distributor)
+
+1. Log out → Log in as `distributor@mederr.com` / `Dist@1234`
+2. Go to **Dashboard** → see order under Pending Approvals → click **Approve**
+3. Order status changes to `APPROVED`
+
+---
+
+## Login Credentials
 
 | Role | Email | Password |
 |------|-------|----------|
@@ -300,130 +299,110 @@ Login credentials:
 docker compose down
 ```
 
-### Stop and remove all data (full reset)
+### Start again (no rebuild)
 ```bash
-docker compose down -v
+docker compose up -d
 ```
 
-### Restart a single service
+### Full reset (wipes everything and rebuilds)
 ```bash
-docker compose restart user-service
+docker compose down
+docker compose up --build -d
+bash docker/docker-seed.sh
 ```
 
-### Rebuild and redeploy after a code change
+### Rebuild after a code change
 ```bash
-# Rebuild only the changed service (faster)
+# One service
 docker compose up --build -d user-service
 
-# Rebuild everything
+# Everything
 docker compose up --build -d
-```
-
-### View running containers
-```bash
-docker compose ps
-docker stats          # live CPU/memory usage per container
 ```
 
 ### View logs
 ```bash
-docker compose logs -f                  # all services
-docker compose logs -f order-service    # single service
+docker compose logs -f                      # all services live
+docker compose logs -f order-service        # one service live
 docker compose logs --tail=50 user-service  # last 50 lines
 ```
 
-### Get a shell inside a container (for debugging)
+### Get a shell inside a container
 ```bash
 docker exec -it user-service sh
 docker exec -it order-service sh
 ```
 
-### Check container health
+### Live resource usage
 ```bash
-docker inspect user-service | grep -A 10 '"Health"'
-```
-
----
-
-## Updating SSL Certificate
-
-Certbot runs on the EC2 host and auto-renews. After renewal, reload Nginx inside the container to pick up the new cert:
-
-```bash
-# Renew cert (certbot does this automatically, but you can force it)
-sudo certbot renew
-
-# Reload Nginx container to use new cert
-docker compose exec frontend nginx -s reload
+docker stats
 ```
 
 ---
 
 ## Troubleshooting
 
-**`docker compose up` fails with `permission denied`**
-You're not in the docker group. Run:
+**`permission denied` when running docker**
 ```bash
 sudo usermod -aG docker ubuntu
 newgrp docker
 ```
 
-**Container shows `unhealthy`**
-Check logs: `docker compose logs <service-name>`
+**Container shows `unhealthy` after 2 minutes**
+```bash
+docker compose logs user-service | grep -i "error\|exception\|failed"
+```
 Most common cause: wrong MongoDB URI or password in `.env`
 
-**`order-service` fails with `UnknownHostException: product-service`**
-This should NOT happen with Docker — service names resolve automatically on the bridge network. If it does, confirm all containers are on the same network:
-```bash
-docker network inspect medical_erp_mederr-network
-```
-All 4 containers should be listed.
-
 **Port 80 already in use**
-Something else is using port 80 (maybe a leftover Nginx from bare-EC2 install):
+A leftover Nginx from bare-EC2 is blocking port 80:
 ```bash
 sudo systemctl stop nginx
 sudo systemctl disable nginx
 docker compose up -d
 ```
 
-**SSL certificate not found**
-The frontend container mounts `/etc/letsencrypt` from the host. Make sure you ran `certbot certonly` before `docker compose up`. Check the cert exists:
+**`curl localhost:8081` returns connection refused**
+This is expected — ports 8081/8082/8083 are not exposed on the host.
+Always use `http://localhost/api/user/...` instead (through Nginx).
+
+**Order approval fails with `Insufficient stock`**
+You skipped adding stock. Run:
 ```bash
-sudo ls /etc/letsencrypt/live/awswithrohit.fun/
+bash docker/docker-add-stock.sh
 ```
 
-**Building without a domain (IP only)**
-If you don't have a domain yet, use the HTTP-only nginx.conf (no SSL). Replace `frontend/nginx.conf` with:
-```nginx
-server {
-    listen 80;
-    server_name _;
-    root /usr/share/nginx/html;
-    index index.html;
-    location / { try_files $uri $uri/ /index.html; }
-    location /api/user/    { proxy_pass http://user-service:8081/api/v1/; }
-    location /api/product/ { proxy_pass http://product-service:8082/api/v1/; }
-    location /api/order/   { proxy_pass http://order-service:8083/api/v1/; }
-}
+**Products not showing in New Order modal**
+Add products while logged in as the DISTRIBUTOR account.
+Products added by other roles get the wrong `distributorId`.
+
+**`order-service` unhealthy — connection to product-service fails**
+This should NOT happen with Docker (service names resolve automatically).
+If it does:
+```bash
+docker network inspect medical_erp_mederr-network
 ```
-And remove the SSL volume mounts from `docker-compose.yml`.
+All 4 containers must be listed on the same network.
+
+**docker-seed.sh returns 403 on all endpoints**
+Your `user-service` is not responding correctly. Check:
+```bash
+curl -i http://localhost/api/user/actuator/health
+docker compose logs user-service | tail -30
+```
 
 ---
 
-## File Placement Summary
-
-After following this guide, your repo structure should look like this:
+## File Structure After Setup
 
 ```
 medical_erp/
-├── docker-compose.yml          ← root level
-├── .env                        ← root level (never commit this)
-├── .env.example                ← root level (safe to commit)
-├── seed.sh
+├── docker-compose.yml          ← copied from docker/ (root level)
+├── .env                        ← your real values (NEVER commit)
+├── seed.sh                     ← bare-EC2 bootstrap (not used with Docker)
 ├── user-service/
-│   ├── Dockerfile
-│   ├── .dockerignore
+│   ├── Dockerfile              ← copied from docker/
+│   ├── .dockerignore           ← copied from docker/
 │   └── src/...
 ├── product-service/
 │   ├── Dockerfile
@@ -436,16 +415,19 @@ medical_erp/
 ├── frontend/
 │   ├── Dockerfile
 │   ├── .dockerignore
-│   ├── nginx.conf              ← Docker version (uses container names)
+│   ├── nginx.conf              ← Docker version (proxies to container names)
 │   └── src/...
 └── docker/
-    ├── user-service.Dockerfile
-    ├── product-service.Dockerfile
-    ├── order-service.Dockerfile
-    ├── frontend.Dockerfile
+    ├── DOCKER_DEPLOYMENT.md    ← this file
+    ├── docker-compose.yml
+    ├── docker-seed.sh          ← Docker bootstrap script
+    ├── docker-add-stock.sh     ← Docker stock addition script
+    ├── .env.example
     ├── nginx.conf
     ├── java.dockerignore
     ├── frontend.dockerignore
-    ├── .env.example
-    └── DOCKER_DEPLOYMENT.md
+    ├── user-service.Dockerfile
+    ├── product-service.Dockerfile
+    ├── order-service.Dockerfile
+    └── frontend.Dockerfile
 ```
